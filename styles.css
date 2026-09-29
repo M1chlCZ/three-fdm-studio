@@ -1,0 +1,192 @@
+.tfs-preview {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--tfs-frame, #b7b0a3) 82%, white);
+  border-radius: 32px;
+  background:
+    linear-gradient(rgba(8, 13, 18, var(--tfs-glow-darkness, 0)), rgba(8, 13, 18, var(--tfs-glow-darkness, 0))),
+    radial-gradient(ellipse at 28% 20%, rgba(248, 245, 237, 0.3), transparent 65%),
+    linear-gradient(145deg, #ede9df 0%, #e4e1d7 100%);
+  box-shadow:
+    0 14px 32px rgba(35, 53, 43, 0.07),
+    0 2px 8px rgba(35, 53, 43, 0.04),
+    inset 0 1px 0 rgba(248, 245, 237, 0.45);
+  isolation: isolate;
+}
+
+@supports (corner-shape: squircle) {
+  .tfs-preview {
+    corner-shape: squircle;
+  }
+}
+
+.tfs-canvas,
+.tfs-fallback {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.tfs-canvas {
+  z-index: 1;
+  cursor: grab;
+  touch-action: pan-y;
+}
+
+.tfs-canvas:active {
+  cursor: grabbing;
+}
+
+.tfs-canvas:focus-visible {
+  outline: 3px solid var(--tfs-accent, #c7683c);
+  outline-offset: -5px;
+}
+
+.tfs-loading {
+  position: absolute;
+  z-index: 3;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+.tfs-loading-indicator {
+  display: grid;
+  gap: 0.6rem;
+  place-items: center;
+  color: var(--tfs-ink, #23352b);
+  font-size: 0.82rem;
+  letter-spacing: 0.02em;
+}
+
+.tfs-spinner {
+  width: 34px;
+  height: 34px;
+  border: 3px solid color-mix(in srgb, var(--tfs-frame, #b7b0a3) 55%, white);
+  border-top-color: var(--tfs-accent, #c7683c);
+  border-radius: 50%;
+  animation: tfs-spin 0.9s linear infinite;
+}
+
+@keyframes tfs-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tfs-spinner {
+    animation: none;
+  }
+}
+
+.tfs-fallback {
+  z-index: 2;
+  display: grid;
+  padding: 7%;
+  place-items: center;
+  pointer-events: none;
+}
+
+.tfs-fallback svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.tfs-status {
+  position: absolute;
+  z-index: 3;
+  inset: auto 16px 16px;
+  display: grid;
+  min-height: 40px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--tfs-frame, #b7b0a3) 72%, white);
+  border-radius: 999px;
+  background: rgba(255, 253, 248, 0.94);
+  color: var(--tfs-ink, #23352b);
+  font-size: 0.82rem;
+  letter-spacing: 0.02em;
+}
+
+.tfs-view-controls {
+  position: absolute;
+  z-index: 4;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  gap: 6px;
+}
+
+.tfs-illustration-notice {
+  position: absolute;
+  z-index: 3;
+  inset: auto 14px 12px;
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: rgba(255, 253, 248, 0.94);
+  color: var(--tfs-ink, #23352b);
+  font-size: clamp(0.7rem, 1.2vw, 0.82rem);
+  line-height: 1.4;
+  text-align: center;
+  pointer-events: none;
+}
+
+.tfs-illustration-controls {
+  position: absolute;
+  z-index: 4;
+  top: 12px;
+  left: 12px;
+}
+
+.tfs-illustration-controls button {
+  min-height: 44px;
+}
+
+.tfs-illustration-controls button:focus-visible {
+  outline: 2px solid var(--tfs-accent, #c7683c);
+  outline-offset: 2px;
+}
+
+.tfs-glow-controls {
+  position: absolute;
+  z-index: 4;
+  bottom: 1rem;
+  left: 1rem;
+  right: 1rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.7rem;
+}
+
+.tfs-glow-controls span {
+  color: #96998e;
+  font-weight: 600;
+  opacity: calc(0.85 - var(--tfs-glow-darkness, 0) * 0.25);
+}
+
+.tfs-view-button {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--tfs-frame, #b7b0a3) 72%, white);
+  border-radius: 999px;
+  background: rgba(255, 253, 248, 0.94);
+  color: var(--tfs-ink, #23352b);
+  font-size: 0.78rem;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+
+.tfs-view-button[aria-pressed="true"] {
+  background: var(--tfs-ink, #23352b);
+  color: #fffdf8;
+}
