@@ -1,6 +1,6 @@
 {
   "name": "three-fdm-studio",
-  "version": "0.1.1",
+  "version": "0.1.2-rc.1",
   "description": "React and three.js GLB studio for previewing 3D-printed products with procedural FDM grain, glitter, studio lighting and picking.",
   "type": "module",
   "license": "MIT",
