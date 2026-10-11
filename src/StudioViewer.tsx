@@ -1,15 +1,14 @@
 "use client";
 
 import {
-  forwardRef,
   useCallback,
   useEffect,
   useImperativeHandle,
   useRef,
   useState,
   type CSSProperties,
-  type ForwardedRef,
   type ReactNode,
+  type Ref,
 } from "react";
 import * as THREE from "three";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
@@ -264,12 +263,7 @@ function DefaultLoadingIndicator({ label }: { label: string }) {
  * studio lighting, shadows, label localization and pointer picking. Consumers
  * import the styles from `three-fdm-studio/styles.css`.
  */
-export const StudioViewer = forwardRef<StudioViewerHandle, StudioViewerProps>(
-  StudioViewerComponent,
-);
-StudioViewer.displayName = "StudioViewer";
-
-function StudioViewerComponent({
+export function StudioViewer({
   src,
   locale = "en",
   fallbackSrc,
@@ -304,7 +298,8 @@ function StudioViewerComponent({
   onReady,
   className,
   style,
-}: StudioViewerProps, ref: ForwardedRef<StudioViewerHandle>) {
+  ref,
+}: StudioViewerProps & { ref?: Ref<StudioViewerHandle> }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const modelRef = useRef<THREE.Object3D | null>(null);
   const contactShadowRef = useRef<ReturnType<
