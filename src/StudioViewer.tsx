@@ -1,11 +1,14 @@
 "use client";
 
 import {
+  forwardRef,
   useCallback,
   useEffect,
+  useImperativeHandle,
   useRef,
   useState,
   type CSSProperties,
+  type ForwardedRef,
   type ReactNode,
 } from "react";
 import * as THREE from "three";
@@ -182,6 +185,38 @@ export type StudioViewerProps = {
   style?: CSSProperties;
 };
 
+/**
+ * Options of {@link StudioViewerHandle.captureThumbnail}.
+ */
+export interface StudioCaptureOptions {
+  /** Width of the captured image in pixels. Defaults to `512`. */
+  width?: number;
+  /** Height of the captured image in pixels. Defaults to `512`. */
+  height?: number;
+  /** Image format of the capture. Defaults to `"image/png"`. */
+  mimeType?: "image/png" | "image/jpeg";
+  /** Compression quality for `"image/jpeg"` between `0` and `1`. */
+  quality?: number;
+  /** Keeps the transparent canvas background. When `false`, the viewer fills
+   * the surface color of the root element, or white, behind the model.
+   * Defaults to `false`. */
+  transparent?: boolean;
+}
+
+/**
+ * Imperative handle of {@link StudioViewer}.
+ */
+export interface StudioViewerHandle {
+  /**
+   * Captures the current view as a thumbnail. The method resizes the renderer
+   * to the requested size, renders one frame, encodes the canvas and restores
+   * the previous size and background. The returned promise rejects when the
+   * viewer shows the SVG fallback, has no WebGL context or cannot encode the
+   * canvas.
+   */
+  captureThumbnail(options?: StudioCaptureOptions): Promise<Blob>;
+}
+
 const defaultLoadingLabel = "Loading 3D preview…";
 const defaultFallbackLabel = "3D preview is unavailable";
 const defaultRotationLabel = "Rotate product horizontally";
@@ -195,6 +230,24 @@ const defaultIllustrationLabels = {
   hide: "Hide props",
   title: "Show or hide the illustrative props. They are not included.",
 };
+
+const defaultCaptureSize = 512;
+
+function resolveCaptureBackground(canvas: HTMLCanvasElement): THREE.Color {
+  const background = new THREE.Color("#ffffff");
+  const surface = canvas.parentElement;
+  if (!surface) return background;
+  const declared = window.getComputedStyle(surface).backgroundColor;
+  if (
+    !declared ||
+    declared === "transparent" ||
+    declared === "rgba(0, 0, 0, 0)"
+  ) {
+    return background;
+  }
+  background.setStyle(declared);
+  return background;
+}
 
 function DefaultLoadingIndicator({ label }: { label: string }) {
   return (
@@ -211,7 +264,12 @@ function DefaultLoadingIndicator({ label }: { label: string }) {
  * studio lighting, shadows, label localization and pointer picking. Consumers
  * import the styles from `three-fdm-studio/styles.css`.
  */
-export function StudioViewer({
+export const StudioViewer = forwardRef<StudioViewerHandle, StudioViewerProps>(
+  StudioViewerComponent,
+);
+StudioViewer.displayName = "StudioViewer";
+
+function StudioViewerComponent({
   src,
   locale = "en",
   fallbackSrc,
@@ -246,7 +304,7 @@ export function StudioViewer({
   onReady,
   className,
   style,
-}: StudioViewerProps) {
+}: StudioViewerProps, ref: ForwardedRef<StudioViewerHandle>) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const modelRef = useRef<THREE.Object3D | null>(null);
   const contactShadowRef = useRef<ReturnType<
@@ -254,6 +312,11 @@ export function StudioViewer({
   >>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.OrthographicCamera | null>(null);
+  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  const composerRef = useRef<EffectComposer | null>(null);
+  const resizeToRef = useRef<(width: number, height: number) => void>(
+    () => undefined,
+  );
   const bodyColorRef = useRef(bodyColor);
   const lidColorRef = useRef(lidColor);
   const materialColorsRef = useRef(materialColors);
@@ -304,6 +367,97 @@ export function StudioViewer({
     src: string;
     markup: string;
   } | null>(null);
+
+  const captureThumbnail = useCallback(
+    async (options?: StudioCaptureOptions): Promise<Blob> => {
+      const width = options?.width ?? defaultCaptureSize;
+      const height = options?.height ?? defaultCaptureSize;
+      const mimeType = options?.mimeType ?? "image/png";
+      const quality = options?.quality;
+      const transparent = options?.transparent ?? false;
+      if (
+        quality !== undefined &&
+        (!Number.isFinite(quality) || quality < 0 || quality > 1)
+      ) {
+        throw new Error(
+          "captureThumbnail: quality must be a number between 0 and 1.",
+        );
+      }
+      if (status === "fallback") {
+        throw new Error(
+          "captureThumbnail: the viewer is showing the SVG fallback and cannot capture a WebGL frame.",
+        );
+      }
+      const renderer = rendererRef.current;
+      const composer = composerRef.current;
+      if (!renderer || !composer) {
+        throw new Error(
+          "captureThumbnail: the viewer is not ready because it has no WebGL context.",
+        );
+      }
+      const previousSize = renderer.getSize(new THREE.Vector2());
+      const previousPixelRatio = renderer.getPixelRatio();
+      const previousClearColor = renderer.getClearColor(new THREE.Color());
+      const previousClearAlpha = renderer.getClearAlpha();
+      const restore = () => {
+        renderer.setPixelRatio(previousPixelRatio);
+        composer.setPixelRatio(previousPixelRatio);
+        renderer.setClearColor(previousClearColor, previousClearAlpha);
+        resizeToRef.current(previousSize.width, previousSize.height);
+        renderRef.current();
+      };
+      try {
+        renderer.setPixelRatio(1);
+        composer.setPixelRatio(1);
+        if (!transparent) {
+          renderer.setClearColor(
+            resolveCaptureBackground(renderer.domElement),
+            1,
+          );
+        }
+        resizeToRef.current(width, height);
+        renderRef.current();
+        return await new Promise<Blob>((resolve, reject) => {
+          const canvas = renderer.domElement;
+          if (typeof canvas.toBlob !== "function") {
+            reject(
+              new Error(
+                "captureThumbnail: HTMLCanvasElement.toBlob is not available in this environment.",
+              ),
+            );
+            return;
+          }
+          try {
+            canvas.toBlob(
+              (blob) => {
+                if (blob) resolve(blob);
+                else {
+                  reject(
+                    new Error(
+                      "captureThumbnail: the canvas has no 2D or WebGL context to encode.",
+                    ),
+                  );
+                }
+              },
+              mimeType,
+              quality,
+            );
+          } catch (error) {
+            reject(error instanceof Error ? error : new Error(String(error)));
+          }
+        });
+      } finally {
+        restore();
+      }
+    },
+    [status],
+  );
+
+  useImperativeHandle(
+    ref,
+    () => ({ captureThumbnail }),
+    [captureThumbnail],
+  );
 
   const scheduleDraw = useCallback(() => {
     if (frameRef.current !== null) return;
@@ -514,10 +668,8 @@ export function StudioViewer({
     const showFallback = () => {
       if (!disposed) setStatus("fallback");
     };
-    const resize = () => {
+    const resizeTo = (width: number, height: number) => {
       if (!renderer || !composer || disposed) return;
-      const width = canvas.clientWidth || 1;
-      const height = canvas.clientHeight || width;
       renderer.setSize(width, height, false);
       composer.setSize(width, height);
       const presentation = modelRef.current;
@@ -529,6 +681,13 @@ export function StudioViewer({
       configureStudioCamera(camera, width / height, centerY);
       scheduleDraw();
     };
+    const resize = () => {
+      if (!renderer || !composer || disposed) return;
+      const width = canvas.clientWidth || 1;
+      const height = canvas.clientHeight || width;
+      resizeTo(width, height);
+    };
+    resizeToRef.current = resizeTo;
 
     const lighting = studioLighting(presentationProfile);
     const applyQuality = (large: boolean) => {
@@ -626,6 +785,7 @@ export function StudioViewer({
         antialias: true,
         powerPreference: "high-performance",
       });
+      rendererRef.current = renderer;
       renderer.outputColorSpace = THREE.SRGBColorSpace;
       renderer.toneMapping = THREE.NeutralToneMapping;
       renderer.toneMappingExposure = 0.7;
@@ -661,6 +821,7 @@ export function StudioViewer({
         scene.add(rimLight);
       }
       composer = new EffectComposer(renderer);
+      composerRef.current = composer;
       ambientOcclusion = new GTAOPass(scene, camera, 1, 1);
       ambientOcclusion.blendIntensity = lighting.aoIntensity;
       applyRenderSettingsRef.current = () => {
@@ -797,6 +958,9 @@ export function StudioViewer({
       renderRef.current = () => undefined;
       qualityRef.current = () => undefined;
       applyRenderSettingsRef.current = () => undefined;
+      rendererRef.current = null;
+      composerRef.current = null;
+      resizeToRef.current = () => undefined;
       if (frameRef.current !== null) {
         window.cancelAnimationFrame(frameRef.current);
         frameRef.current = null;

@@ -141,6 +141,42 @@ viewer then shows a control that fades the studio to darkness and back. Use
 `glowLabels` to translate the control. The viewer creates the bloom pass on the first glow request and disables it afterwards
 only while the demonstration runs.
 
+## Capturing thumbnails
+
+Attach a ref to export the current view as an image. `captureThumbnail`
+resizes the renderer to the requested size, renders one frame, encodes the
+canvas and restores the previous size and background.
+
+```tsx
+import { useRef } from "react";
+import { StudioViewer, type StudioViewerHandle } from "three-fdm-studio";
+
+export function ProductPreview() {
+  const viewer = useRef<StudioViewerHandle>(null);
+
+  return (
+    <StudioViewer
+      ref={viewer}
+      src="/models/planter.glb"
+      alt="Planter preview"
+      bodyColor="#c7683c"
+      lidColor="#d7c6a5"
+      onReady={() => {
+        void viewer.current?.captureThumbnail({ width: 1200, height: 630 });
+      }}
+    />
+  );
+}
+```
+
+The default size is `512` x `512` and the default format is `image/png`.
+Open Graph and Twitter summary images usually use `1200` x `630` (1.91:1) or
+`1200` x `1200`. Pass `mimeType: "image/jpeg"` with `quality` between `0` and
+`1` when the payload size matters. The default fills the surface color of the
+root element, or white, behind the model; set `transparent: true` to keep the
+canvas alpha channel. The returned promise rejects when the viewer shows the
+SVG fallback or has no WebGL context.
+
 ## Asset paths
 
 - `dracoDecoderPath` sets the Draco decoder location. The default is the
@@ -188,6 +224,8 @@ The package also exports the standalone building blocks:
   `configurationPreviewMaterialColors`. Manifest asset paths use the
   consumer's `/media/` and `/models/` prefixes.
 - `glowDemoDarkness`, `introYawOffset`, `previewRenderQuality`.
+- The `StudioViewerHandle` and `StudioCaptureOptions` types for thumbnail
+  capture.
 
 ## Development
 

@@ -7,7 +7,11 @@ export {
   introYawOffset,
   previewRenderQuality,
 } from "./StudioViewer.js";
-export type { StudioViewerProps } from "./StudioViewer.js";
+export type {
+  StudioCaptureOptions,
+  StudioViewerHandle,
+  StudioViewerProps,
+} from "./StudioViewer.js";
 export {
   addFuzzyMaskAttribute,
   configureStudioCamera,
