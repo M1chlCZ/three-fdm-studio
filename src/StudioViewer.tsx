@@ -4,9 +4,11 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
   type Ref,
 } from "react";
@@ -41,6 +43,7 @@ import { createModelLabelLocalizer } from "./label-localization.js";
 import { modelPreviewNotice } from "./preview-notice.js";
 import { createModelIllustrationToggle } from "./illustrations.js";
 import { createStudioContactShadow } from "./studio-shadow.js";
+import { projectStudioHotspot, type StudioHotspot } from "./hotspots.js";
 import { STUDIO_OCCURRENCE_ID_KEY } from "./user-data.js";
 
 type Status = "loading" | "ready" | "fallback";
@@ -174,6 +177,13 @@ export type StudioViewerProps = {
   onActivate?: () => void;
   /** Occurrence key that receives the selection highlight. */
   highlightOccurrenceKey?: string;
+  /** Interactive annotation markers that follow the model. Positions use the
+   * studio presentation frame described by {@link StudioHotspot}. The markers
+   * are hidden while the model loads and while the viewer shows the fallback. */
+  hotspots?: readonly StudioHotspot[];
+  /** Called with the `id` of a hotspot when its marker is clicked or
+   * activated with Enter or Space. A marker never calls `onPick`. */
+  onHotspotClick?: (hotspotId: string) => void;
   /** Called with the `studio_occurrence_id` value of the picked mesh. */
   onPick?: (occurrenceKey: string) => void;
   /** Called when the model becomes visible. */
@@ -294,6 +304,8 @@ export function StudioViewer({
   expanded = false,
   onActivate,
   highlightOccurrenceKey,
+  hotspots,
+  onHotspotClick,
   onPick,
   onReady,
   className,
@@ -347,6 +359,11 @@ export function StudioViewer({
     startYaw: number;
     dragged: boolean;
   } | null>(null);
+  const hotspotsRef = useRef(hotspots);
+  const hotspotElementsRef = useRef(new Map<string, HTMLButtonElement>());
+  const updateHotspotsRef = useRef<() => void>(() => undefined);
+  const suppressedHotspotClickRef = useRef(false);
+  const keyboardHotspotClickRef = useRef(false);
   const [status, setStatus] = useState<Status>("loading");
   const [previewNoticeState, setPreviewNoticeState] = useState<{
     src: string;
@@ -550,6 +567,50 @@ export function StudioViewer({
       modelRef.current.rotation.y = THREE.MathUtils.degToRad(normalized);
     setYawDegrees(Math.round(normalized));
     scheduleDraw();
+    updateHotspotsRef.current();
+  };
+
+  const startRotation = (event: ReactPointerEvent<HTMLElement>) => {
+    cancelIntroRotation();
+    pointerRef.current = {
+      id: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startYaw: yawRef.current,
+      dragged: false,
+    };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    event.currentTarget.focus();
+  };
+
+  const moveRotation = (event: ReactPointerEvent<HTMLElement>) => {
+    const pointer = pointerRef.current;
+    if (!pointer || pointer.id !== event.pointerId) return;
+    if (
+      Math.hypot(
+        event.clientX - pointer.startX,
+        event.clientY - pointer.startY,
+      ) > 6
+    ) {
+      pointer.dragged = true;
+    }
+    applyYaw(pointer.startYaw + (event.clientX - pointer.startX) * 0.45);
+  };
+
+  const endRotation = (event: ReactPointerEvent<HTMLElement>) => {
+    const pointer = pointerRef.current;
+    if (pointer?.id !== event.pointerId) return null;
+    pointerRef.current = null;
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+    const releasedAsTap =
+      Math.hypot(
+        event.clientX - pointer.startX,
+        event.clientY - pointer.startY,
+      ) <= 6;
+    return {
+      dragged: pointer.dragged,
+      tapped: !pointer.dragged && releasedAsTap,
+    };
   };
 
   useEffect(() => {
@@ -601,6 +662,11 @@ export function StudioViewer({
     qualityRef.current(expanded);
     scheduleDraw();
   }, [expanded, scheduleDraw]);
+
+  useLayoutEffect(() => {
+    hotspotsRef.current = hotspots;
+    updateHotspotsRef.current();
+  }, [hotspots, status]);
 
   useEffect(() => {
     illustrationsHiddenRef.current = illustrationsHidden;
@@ -885,6 +951,26 @@ export function StudioViewer({
         if (contactShadow && modelRef.current)
           contactShadow.object.rotation.copy(modelRef.current.rotation);
         composer?.render(0);
+        updateHotspotsRef.current();
+      };
+      updateHotspotsRef.current = () => {
+        const presentation = modelRef.current;
+        const list = hotspotsRef.current;
+        if (!presentation || !list) return;
+        presentation.updateWorldMatrix(true, false);
+        camera.updateMatrixWorld();
+        for (const hotspot of list) {
+          const element = hotspotElementsRef.current.get(hotspot.id);
+          if (!element) continue;
+          const projection = projectStudioHotspot(
+            hotspot.position,
+            camera,
+            presentation.matrixWorld,
+          );
+          element.hidden = !projection.visible;
+          element.style.left = `${((projection.x + 1) * 50).toFixed(4)}%`;
+          element.style.top = `${((1 - projection.y) * 50).toFixed(4)}%`;
+        }
       };
       qualityRef.current = applyQuality;
       applyQuality(expandedRef.current);
@@ -953,6 +1039,7 @@ export function StudioViewer({
       renderRef.current = () => undefined;
       qualityRef.current = () => undefined;
       applyRenderSettingsRef.current = () => undefined;
+      updateHotspotsRef.current = () => undefined;
       rendererRef.current = null;
       composerRef.current = null;
       resizeToRef.current = () => undefined;
@@ -1047,64 +1134,32 @@ export function StudioViewer({
         aria-valuenow={yawDegrees}
         aria-valuetext={`${yawDegrees}°`}
         aria-keyshortcuts={onActivate ? "Enter" : undefined}
-        onPointerDown={(event) => {
-          cancelIntroRotation();
-          pointerRef.current = {
-            id: event.pointerId,
-            startX: event.clientX,
-            startY: event.clientY,
-            startYaw: yawRef.current,
-            dragged: false,
-          };
-          event.currentTarget.setPointerCapture?.(event.pointerId);
-          event.currentTarget.focus();
-        }}
-        onPointerMove={(event) => {
-          const pointer = pointerRef.current;
-          if (!pointer || pointer.id !== event.pointerId) return;
-          if (
-            Math.hypot(
-              event.clientX - pointer.startX,
-              event.clientY - pointer.startY,
-            ) > 6
-          ) {
-            pointer.dragged = true;
-          }
-          applyYaw(pointer.startYaw + (event.clientX - pointer.startX) * 0.45);
-        }}
+        onPointerDown={startRotation}
+        onPointerMove={moveRotation}
         onPointerUp={(event) => {
-          const pointer = pointerRef.current;
-          if (pointer?.id !== event.pointerId) return;
-          pointerRef.current = null;
-          event.currentTarget.releasePointerCapture?.(event.pointerId);
-          const releasedAsTap =
-            Math.hypot(
-              event.clientX - pointer.startX,
-              event.clientY - pointer.startY,
-            ) <= 6;
-          if (!pointer.dragged && releasedAsTap) {
-            onActivate?.();
-            if (onPick && sceneRef.current && cameraRef.current) {
-              const bounds = event.currentTarget.getBoundingClientRect();
-              const point = new THREE.Vector2(
-                ((event.clientX - bounds.left) / Math.max(bounds.width, 1)) * 2 -
-                  1,
-                -((event.clientY - bounds.top) / Math.max(bounds.height, 1)) * 2 +
-                  1,
+          const released = endRotation(event);
+          if (!released?.tapped) return;
+          onActivate?.();
+          if (onPick && sceneRef.current && cameraRef.current) {
+            const bounds = event.currentTarget.getBoundingClientRect();
+            const point = new THREE.Vector2(
+              ((event.clientX - bounds.left) / Math.max(bounds.width, 1)) * 2 -
+                1,
+              -((event.clientY - bounds.top) / Math.max(bounds.height, 1)) * 2 +
+                1,
+            );
+            const raycaster = new THREE.Raycaster();
+            raycaster.setFromCamera(point, cameraRef.current);
+            const hit = raycaster
+              .intersectObjects(sceneRef.current.children, true)
+              .find(
+                (entry) =>
+                  typeof entry.object.userData[STUDIO_OCCURRENCE_ID_KEY] ===
+                  "string",
               );
-              const raycaster = new THREE.Raycaster();
-              raycaster.setFromCamera(point, cameraRef.current);
-              const hit = raycaster
-                .intersectObjects(sceneRef.current.children, true)
-                .find(
-                  (entry) =>
-                    typeof entry.object.userData[STUDIO_OCCURRENCE_ID_KEY] ===
-                    "string",
-                );
-              const occurrenceKey =
-                hit?.object.userData[STUDIO_OCCURRENCE_ID_KEY];
-              if (occurrenceKey) onPick(occurrenceKey);
-            }
+            const occurrenceKey =
+              hit?.object.userData[STUDIO_OCCURRENCE_ID_KEY];
+            if (occurrenceKey) onPick(occurrenceKey);
           }
         }}
         onPointerCancel={() => {
@@ -1124,6 +1179,56 @@ export function StudioViewer({
           }
         }}
       />
+      {status === "ready" && hotspots && hotspots.length > 0 && (
+        <div className="studio-hotspots">
+          {hotspots.map((hotspot) => (
+            <button
+              key={hotspot.id}
+              ref={(element) => {
+                if (element)
+                  hotspotElementsRef.current.set(hotspot.id, element);
+                else hotspotElementsRef.current.delete(hotspot.id);
+              }}
+              type="button"
+              className="studio-hotspot"
+              data-hotspot-id={hotspot.id}
+              title={hotspot.description}
+              onPointerDown={(event) => {
+                keyboardHotspotClickRef.current = false;
+                suppressedHotspotClickRef.current = false;
+                startRotation(event);
+              }}
+              onPointerMove={moveRotation}
+              onPointerUp={(event) => {
+                const released = endRotation(event);
+                if (released?.dragged) suppressedHotspotClickRef.current = true;
+              }}
+              onPointerCancel={() => {
+                pointerRef.current = null;
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" && event.key !== " ") return;
+                event.preventDefault();
+                keyboardHotspotClickRef.current = true;
+                onHotspotClick?.(hotspot.id);
+              }}
+              onClick={() => {
+                if (
+                  keyboardHotspotClickRef.current ||
+                  suppressedHotspotClickRef.current
+                ) {
+                  keyboardHotspotClickRef.current = false;
+                  suppressedHotspotClickRef.current = false;
+                  return;
+                }
+                onHotspotClick?.(hotspot.id);
+              }}
+            >
+              <span className="studio-hotspot-label">{hotspot.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
       {status === "loading" && (
         <div className="tfs-loading">
           {loadingContent ?? <DefaultLoadingIndicator label={loadingLabel} />}

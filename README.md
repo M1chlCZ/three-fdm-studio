@@ -3,8 +3,8 @@
 A React component and material engine that renders GLB models of 3D-printed
 goods with three.js. The studio includes a procedural FDM fuzzy-skin grain,
 glitter flakes, surface-finish switching, semantic warehouse-color mapping,
-studio lighting and contact shadows, label-atlas localization and a picking
-callback.
+studio lighting and contact shadows, label-atlas localization, hotspot
+annotations and a picking callback.
 
 The package ships ESM only. It has no runtime dependencies. React and three.js
 are peer dependencies, so the application provides them.
@@ -177,6 +177,76 @@ root element, or white, behind the model; set `transparent: true` to keep the
 canvas alpha channel. The returned promise rejects when the viewer shows the
 SVG fallback or has no WebGL context.
 
+## Hotspot annotations
+
+`hotspots` attaches interactive markers to points of the model. The viewer
+projects every marker through the live camera on each rendered frame, so a
+marker follows the model rotation and drag. Without the prop the viewer
+renders no markers.
+
+```tsx
+import { StudioViewer } from "three-fdm-studio";
+import "three-fdm-studio/styles.css";
+
+export function ProductPreview() {
+  return (
+    <StudioViewer
+      src="/models/planter.glb"
+      alt="Planter preview"
+      bodyColor="#c7683c"
+      lidColor="#d7c6a5"
+      hotspots={[
+        {
+          id: "drainage",
+          label: "Drainage",
+          description: "Removable plug with a hidden outlet",
+          position: [0, -0.52, 0.4],
+        },
+        {
+          id: "hinge",
+          label: "Hinge",
+          position: [0.28, 0.24, -0.35],
+        },
+      ]}
+      onHotspotClick={(id) => console.log("hotspot", id)}
+    />
+  );
+}
+```
+
+| Prop | Type | Meaning |
+| --- | --- | --- |
+| `hotspots` | `readonly StudioHotspot[]` | Annotation markers to render. |
+| `onHotspotClick` | `(hotspotId: string) => void` | Called when a marker is clicked or activated with `Enter` or `Space`. |
+
+A `StudioHotspot` value has these fields:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `id` | `string` | Unique id that `onHotspotClick` reports. |
+| `label` | `string` | Marker text and accessible name. |
+| `position` | `[number, number, number]` | Anchor point in studio presentation coordinates. |
+| `description` | `string?` | Tooltip text. The viewer sets it as the marker `title`. |
+
+`position` uses the frame in which the viewer places the model:
+
+- Y is up and the model stands on the floor plane at `y = -0.72`.
+- The model is centered on the vertical axis, so `x = 0` and `z = 0` pass
+  through its horizontal centre.
+- The longest side of the model measures 1.5 world units.
+- The viewer yaw rotates this frame together with the model, so a position
+  stays glued to the same spot when the model turns.
+
+A marker is visible when its projected point lies inside the canvas and inside
+the camera depth range. The viewer hides markers that project outside the
+canvas, behind the camera or beyond the far plane. The rule does not test
+occlusion by model geometry, so keep hotspots on outward-facing surfaces.
+
+Markers are HTML buttons over the canvas. They are focusable, `Enter` and
+`Space` activate them, and a click calls `onHotspotClick` without calling
+`onPick`. A pointer drag that starts on a marker still rotates the model and
+does not activate the marker.
+
 ## Asset paths
 
 - `dracoDecoderPath` sets the Draco decoder location. The default is the
@@ -192,7 +262,8 @@ specific file.
 
 ## Styling
 
-The component uses plain `tfs-` class names. Import
+The component uses plain `tfs-` class names for the viewer chrome and the
+`studio-hotspot` class set for hotspot markers. Import
 `three-fdm-studio/styles.css` once in the application. The root element
 accepts `className` and `style`.
 
@@ -205,6 +276,19 @@ CSS custom properties:
 | `--tfs-accent` | Focus outline color. |
 | `--tfs-body-0` to `--tfs-body-2` | Body shades for fallback SVG artwork. |
 | `--tfs-lid-0` to `--tfs-lid-2` | Lid shades for fallback SVG artwork. |
+
+Hotspot markers accept their own properties. Set them on any ancestor of the
+viewer, for example on `:root`, to theme every marker:
+
+| Property | Effect |
+| --- | --- |
+| `--studio-hotspot-size` | Marker diameter. Default `18px`. |
+| `--studio-hotspot-color` | Marker color. Default `--tfs-accent`. |
+| `--studio-hotspot-color-hover` | Marker color on hover and focus. Default `--tfs-ink`. |
+| `--studio-hotspot-ring` | Ring around the marker. Default `#fffdf8`. |
+| `--studio-hotspot-ink` | Label text color. Default `--tfs-ink`. |
+| `--studio-hotspot-label-background` | Label pill background. Default `rgba(255, 253, 248, 0.94)`. |
+| `--studio-hotspot-focus` | Focus outline color. Default `--tfs-accent`. |
 
 ## Exported helpers
 
@@ -224,6 +308,8 @@ The package also exports the standalone building blocks:
   `configurationPreviewMaterialColors`. Manifest asset paths use the
   consumer's `/media/` and `/models/` prefixes.
 - `glowDemoDarkness`, `introYawOffset`, `previewRenderQuality`.
+- `projectStudioHotspot` with the `StudioHotspot` and
+  `StudioHotspotProjection` types for custom overlays.
 - The `StudioViewerHandle` and `StudioCaptureOptions` types for thumbnail
   capture.
 

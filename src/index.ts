@@ -54,6 +54,11 @@ export type {
 export { modelPreviewNotice } from "./preview-notice.js";
 export { createModelIllustrationToggle } from "./illustrations.js";
 export type { StudioIllustrationToggle } from "./illustrations.js";
+export { projectStudioHotspot } from "./hotspots.js";
+export type {
+  StudioHotspot,
+  StudioHotspotProjection,
+} from "./hotspots.js";
 export {
   configurationPreviewMaterialColors,
   parseConfigurationPreviewManifest,

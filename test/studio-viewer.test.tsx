@@ -10,6 +10,7 @@ import {
   glowDemoDarkness,
   introYawOffset,
   type StudioViewerHandle,
+  type StudioViewerProps,
 } from "../src/StudioViewer.js";
 
 vi.mock("three", async (importOriginal) => {
@@ -433,5 +434,176 @@ describe("StudioViewer thumbnail capture", () => {
         ?.getAttribute("data-render-mode"),
     ).toBe("fallback");
     await expect(ref.current!.captureThumbnail()).rejects.toThrow(/fallback/i);
+  });
+});
+
+describe("StudioViewer hotspots", () => {
+  const pointer = (
+    type: string,
+    pointerId: number,
+    clientX: number,
+    clientY: number,
+  ) => {
+    const event = new Event(type, { bubbles: true });
+    Object.defineProperties(event, {
+      pointerId: { value: pointerId },
+      clientX: { value: clientX },
+      clientY: { value: clientY },
+    });
+    return event;
+  };
+
+  async function renderViewer(
+    hotspots: StudioViewerProps["hotspots"],
+    handlers: Pick<StudioViewerProps, "onHotspotClick" | "onPick"> = {},
+  ) {
+    Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
+      configurable: true,
+      value: () => ({}),
+    });
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query.includes("prefers-reduced-motion"),
+    }));
+    await act(async () => {
+      root.render(
+        <StudioViewer
+          src="/models/sample.glb"
+          alt="Sample product preview"
+          bodyColor="#c7683c"
+          lidColor="#d7c6a5"
+          hotspots={hotspots}
+          {...handlers}
+        />,
+      );
+      await Promise.resolve();
+    });
+  }
+
+  it("renders one marker per hotspot and none without the prop", async () => {
+    await renderViewer(undefined);
+    expect(container.querySelectorAll(".studio-hotspot")).toHaveLength(0);
+
+    await renderViewer([
+      {
+        id: "hinge",
+        label: "Lid hinge",
+        description: "Printed hinge",
+        position: [0, 0.03, 0],
+      },
+      { id: "foot", label: "Foot", position: [0, 0.03, 0] },
+    ]);
+    const markers = [
+      ...container.querySelectorAll<HTMLButtonElement>(".studio-hotspot"),
+    ];
+    expect(markers).toHaveLength(2);
+    expect(markers[0].type).toBe("button");
+    expect(markers[0].dataset.hotspotId).toBe("hinge");
+    expect(markers[0].textContent).toBe("Lid hinge");
+    expect(markers[0].title).toBe("Printed hinge");
+    expect(markers[1].getAttribute("title")).toBeNull();
+    expect(markers[0].hidden).toBe(false);
+    expect(Number.parseFloat(markers[0].style.left)).toBeCloseTo(50, 2);
+    expect(markers[0].style.top).toMatch(/^-?\d+(\.\d+)?%$/);
+    expect(markers[0].style.left).toMatch(/^-?\d+(\.\d+)?%$/);
+  });
+
+  it("reports a marker click with its id and never calls the canvas pick", async () => {
+    const onHotspotClick = vi.fn();
+    const onPick = vi.fn();
+    await renderViewer(
+      [{ id: "hinge", label: "Lid hinge", position: [0, 0.03, 0] }],
+      { onHotspotClick, onPick },
+    );
+    const marker = container.querySelector<HTMLButtonElement>(
+      "[data-hotspot-id=hinge]",
+    );
+    expect(marker).not.toBeNull();
+    act(() => {
+      marker!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(onHotspotClick).toHaveBeenCalledTimes(1);
+    expect(onHotspotClick).toHaveBeenCalledWith("hinge");
+    expect(onPick).not.toHaveBeenCalled();
+  });
+
+  it("activates a focused marker with Enter and Space", async () => {
+    const onHotspotClick = vi.fn();
+    await renderViewer(
+      [{ id: "hinge", label: "Lid hinge", position: [0, 0.03, 0] }],
+      { onHotspotClick },
+    );
+    const marker = container.querySelector<HTMLButtonElement>(
+      "[data-hotspot-id=hinge]",
+    )!;
+    marker.focus();
+    expect(document.activeElement).toBe(marker);
+    act(() => {
+      marker.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+    act(() => {
+      marker.dispatchEvent(
+        new KeyboardEvent("keydown", { key: " ", bubbles: true }),
+      );
+    });
+    expect(onHotspotClick).toHaveBeenCalledTimes(2);
+    expect(onHotspotClick).toHaveBeenNthCalledWith(1, "hinge");
+    expect(onHotspotClick).toHaveBeenNthCalledWith(2, "hinge");
+  });
+
+  it("rotates the model when a drag starts on a marker and skips the activation", async () => {
+    const onHotspotClick = vi.fn();
+    await renderViewer(
+      [{ id: "hinge", label: "Lid hinge", position: [0, 0.03, 0] }],
+      { onHotspotClick },
+    );
+    const canvas = container.querySelector("canvas");
+    const marker = container.querySelector<HTMLButtonElement>(
+      "[data-hotspot-id=hinge]",
+    )!;
+    expect(canvas?.getAttribute("aria-valuenow")).toBe("0");
+    act(() => {
+      marker.dispatchEvent(pointer("pointerdown", 11, 100, 40));
+      marker.dispatchEvent(pointer("pointermove", 11, 160, 40));
+      marker.dispatchEvent(pointer("pointerup", 11, 160, 40));
+    });
+    expect(Number(canvas?.getAttribute("aria-valuenow"))).not.toBe(0);
+    act(() => {
+      marker.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(onHotspotClick).not.toHaveBeenCalled();
+  });
+
+  it("re-projects the markers when the model rotates", async () => {
+    await renderViewer([
+      { id: "side", label: "Side", position: [0.4, 0.03, 0] },
+    ]);
+    const canvas = container.querySelector("canvas");
+    const marker = container.querySelector<HTMLButtonElement>(
+      "[data-hotspot-id=side]",
+    )!;
+    const before = marker.style.left;
+    act(() => {
+      canvas?.dispatchEvent(pointer("pointerdown", 12, 100, 40));
+      canvas?.dispatchEvent(pointer("pointermove", 12, 160, 40));
+      canvas?.dispatchEvent(pointer("pointerup", 12, 160, 40));
+    });
+    expect(marker.style.left).not.toBe(before);
+  });
+
+  it("hides markers whose anchor leaves the canvas", async () => {
+    await renderViewer([
+      { id: "near", label: "Near", position: [0, 0.03, 0] },
+      { id: "far", label: "Far", position: [100, 0, 0] },
+    ]);
+    const near = container.querySelector<HTMLButtonElement>(
+      "[data-hotspot-id=near]",
+    )!;
+    const far = container.querySelector<HTMLButtonElement>(
+      "[data-hotspot-id=far]",
+    )!;
+    expect(near.hidden).toBe(false);
+    expect(far.hidden).toBe(true);
   });
 });

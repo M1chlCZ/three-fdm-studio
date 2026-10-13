@@ -190,3 +190,61 @@
   background: var(--tfs-ink, #23352b);
   color: #fffdf8;
 }
+
+.studio-hotspots {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  pointer-events: none;
+}
+
+.studio-hotspot {
+  position: absolute;
+  width: var(--studio-hotspot-size, 18px);
+  height: var(--studio-hotspot-size, 18px);
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  overflow: visible;
+  background: var(--studio-hotspot-color, var(--tfs-accent, #c7683c));
+  box-shadow:
+    0 0 0 2px var(--studio-hotspot-ring, #fffdf8),
+    0 2px 6px rgba(35, 53, 43, 0.28);
+  cursor: pointer;
+  font: inherit;
+  pointer-events: auto;
+  touch-action: pan-y;
+  user-select: none;
+  transform: translate(-50%, -50%);
+}
+
+.studio-hotspot[hidden] {
+  display: none;
+}
+
+.studio-hotspot:hover,
+.studio-hotspot:focus-visible {
+  background: var(--studio-hotspot-color-hover, var(--tfs-ink, #23352b));
+}
+
+.studio-hotspot:focus-visible {
+  outline: 2px solid var(--studio-hotspot-focus, var(--tfs-accent, #c7683c));
+  outline-offset: 3px;
+}
+
+.studio-hotspot-label {
+  position: absolute;
+  top: 50%;
+  left: calc(100% + 8px);
+  transform: translateY(-50%);
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(
+    --studio-hotspot-label-background,
+    rgba(255, 253, 248, 0.94)
+  );
+  color: var(--studio-hotspot-ink, var(--tfs-ink, #23352b));
+  font-size: 0.72rem;
+  line-height: 1.3;
+  white-space: nowrap;
+}
